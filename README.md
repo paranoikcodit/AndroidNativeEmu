@@ -43,7 +43,6 @@ pip install androidemu
 ## Dependencies
 
 - [Unicorn CPU emulator framework](https://github.com/unicorn-engine/unicorn)
-- [Keystone assembler framework](https://github.com/keystone-engine/keystone)
 
 ## Resources
 
