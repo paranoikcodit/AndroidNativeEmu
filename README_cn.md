@@ -30,7 +30,6 @@ Windows上可以跑，自行尝试。
 
 ## 依赖库
 - [Unicorn CPU emulator framework](https://github.com/unicorn-engine/unicorn)
-- [Keystone assembler framework](https://github.com/keystone-engine/keystone)
 
 
 ## 初始化模拟器

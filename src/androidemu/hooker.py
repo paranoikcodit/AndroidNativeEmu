@@ -1,8 +1,29 @@
-from keystone import Ks, KS_ARCH_ARM, KS_MODE_THUMB
 from unicorn import *
 from unicorn.arm_const import *
 
 STACK_OFFSET = 8
+
+
+def assemble_hook_thumb(hook_id: int):
+    """
+    :param hook_id: 0-255
+    :return: (asm_bytes_list, asm_count)
+    """
+    PUSH_R4_R5_LR = b"\x30\xb5"  # push {r4, r5, lr}
+    MOV_R4_R4 = b"\x24\x46"  # mov  r4, r4
+    POP_R5_PC = b"\x20\xbd"  # pop  {r5, pc}
+
+    if not 0 <= hook_id <= 0xFF:
+        raise ValueError("hook_id should be 0..255")
+
+    movs_r4_imm8 = bytes([hook_id, 0x24])  # little-endian: imm8, 0x24
+
+    code = PUSH_R4_R5_LR + movs_r4_imm8 + MOV_R4_R4 + POP_R5_PC
+
+    asm_bytes_list = list(code)  # [0x30, 0xB5, 0x??, 0x24, 0x24, 0x46, 0x20, 0xBD]
+    asm_count = len(code) // 2  # 4 ixs
+
+    return asm_bytes_list, asm_count
 
 
 # Utility class to create a bridge between ARM and Python.
@@ -13,14 +34,15 @@ class Hooker:
 
     def __init__(self, emu, base_addr, size):
         self._emu = emu
-        self._keystone = Ks(KS_ARCH_ARM, KS_MODE_THUMB)
         self._size = size
         self._current_id = 0xFF00
         self._hooks = dict()
         self._hook_magic = base_addr
         self._hook_start = base_addr + 4
         self._hook_current = self._hook_start
-        self._emu.uc.hook_add(UC_HOOK_CODE, self._hook, None, self._hook_start, self._hook_start + size)
+        self._emu.uc.hook_add(
+            UC_HOOK_CODE, self._hook, None, self._hook_start, self._hook_start + size
+        )
 
     def _get_next_id(self):
         idx = self._current_id
@@ -32,14 +54,7 @@ class Hooker:
         hook_id = self._get_next_id()
         hook_addr = self._hook_current
 
-        # Create the ARM assembly code.
-        # Make sure to update STACK_OFFSET if you change the PUSH/POP.
-        asm = "PUSH {R4,LR}\n" \
-              "MOV R4, #" + hex(hook_id) + "\n" \
-              "MOV R4, R4\n" \
-              "POP {R4,PC}"
-
-        asm_bytes_list, asm_count = self._keystone.asm(bytes(asm, encoding='ascii'))
+        asm_bytes_list, asm_count = assemble_hook_thumb(hook_id)
 
         if asm_count != 4:
             raise ValueError("Expected asm_count to be 4 instead of %u." % asm_count)
@@ -71,14 +86,18 @@ class Hooker:
 
         for index in range(0, index_max):
             address = hook_map[index] if index in hook_map else 0
-            table_bytes += int(address + 1).to_bytes(4, byteorder='little')  # + 1 because THUMB.
+            table_bytes += int(address + 1).to_bytes(
+                4, byteorder="little"
+            )  # + 1 because THUMB.
 
         self._emu.uc.mem_write(table_address, table_bytes)
         self._hook_current += len(table_bytes)
 
         # Then we write the a pointer to the table.
         ptr_address = self._hook_current
-        self._emu.uc.mem_write(ptr_address, table_address.to_bytes(4, byteorder='little'))
+        self._emu.uc.mem_write(
+            ptr_address, table_address.to_bytes(4, byteorder="little")
+        )
         self._hook_current += 4
 
         return ptr_address, table_address
