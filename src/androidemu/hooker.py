@@ -4,23 +4,50 @@ from unicorn.arm_const import *
 STACK_OFFSET = 8
 
 
-def assemble_hook_thumb(hook_id: int):
-    """
-    :param hook_id: 0-255
-    :return: (asm_bytes_list, asm_count)
-    """
-    PUSH_R4_R5_LR = b"\x30\xb5"  # push {r4, r5, lr}
-    MOV_R4_R4 = b"\x24\x46"  # mov  r4, r4
-    POP_R5_PC = b"\x20\xbd"  # pop  {r5, pc}
+from typing import List, Tuple
 
-    movs_r4_imm8 = bytes([hook_id, 0x24])  # little-endian: imm8, 0x24
 
-    code = PUSH_R4_R5_LR + movs_r4_imm8 + MOV_R4_R4 + POP_R5_PC
+def _to_le16(value: int) -> List[int]:
+    return [value & 0xFF, (value >> 8) & 0xFF]
 
-    asm_bytes_list = list(code)  # [0x30, 0xB5, 0x??, 0x24, 0x24, 0x46, 0x20, 0xBD]
-    asm_count = len(code) // 2  # 4 ixs
 
-    return asm_bytes_list, asm_count
+def _encode_movw(rd: int, imm16: int) -> List[int]:
+    i = (imm16 >> 11) & 0x1
+    imm4 = (imm16 >> 12) & 0xF
+    imm3 = (imm16 >> 8) & 0x7
+    imm8 = imm16 & 0xFF
+    half1 = 0xF240 | (i << 10) | imm4
+    half2 = (imm3 << 12) | (rd << 8) | imm8
+    return _to_le16(half1) + _to_le16(half2)
+
+
+def _encode_movt(rd: int, imm16: int) -> List[int]:
+    i = (imm16 >> 11) & 0x1
+    imm4 = (imm16 >> 12) & 0xF
+    imm3 = (imm16 >> 8) & 0x7
+    imm8 = imm16 & 0xFF
+    half1 = 0xF2C0 | (i << 10) | imm4
+    half2 = (imm3 << 12) | (rd << 8) | imm8
+    return _to_le16(half1) + _to_le16(half2)
+
+
+def assemble_hook_stub(hook_id: int) -> Tuple[List[int], int]:
+    code: List[int] = []
+    code += _to_le16(0xB510)
+
+    if hook_id <= 0xFF:
+        code += _to_le16(0x2400 | hook_id)
+    else:
+        code += _encode_movw(4, hook_id & 0xFFFF)
+        upper = (hook_id >> 16) & 0xFFFF
+        if upper:
+            code += _encode_movt(4, upper)
+
+    code += _to_le16(0x4624)
+    code += _to_le16(0xBD10)
+
+    instr_count = len(code) // 2
+    return code, instr_count
 
 
 # Utility class to create a bridge between ARM and Python.
@@ -51,7 +78,7 @@ class Hooker:
         hook_id = self._get_next_id()
         hook_addr = self._hook_current
 
-        asm_bytes_list, asm_count = assemble_hook_thumb(hook_id)
+        asm_bytes_list, asm_count = assemble_hook_stub(hook_id)
 
         if asm_count != 4:
             raise ValueError("Expected asm_count to be 4 instead of %u." % asm_count)
