@@ -13,9 +13,6 @@ def assemble_hook_thumb(hook_id: int):
     MOV_R4_R4 = b"\x24\x46"  # mov  r4, r4
     POP_R5_PC = b"\x20\xbd"  # pop  {r5, pc}
 
-    if not 0 <= hook_id <= 0xFF:
-        raise ValueError("hook_id should be 0..255")
-
     movs_r4_imm8 = bytes([hook_id, 0x24])  # little-endian: imm8, 0x24
 
     code = PUSH_R4_R5_LR + movs_r4_imm8 + MOV_R4_R4 + POP_R5_PC
