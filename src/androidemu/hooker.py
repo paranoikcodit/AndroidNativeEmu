@@ -33,20 +33,28 @@ def _encode_movt(rd: int, imm16: int) -> List[int]:
 
 def assemble_hook_stub(hook_id: int) -> Tuple[List[int], int]:
     code: List[int] = []
+    instr_count = 0
+
     code += _to_le16(0xB510)
+    instr_count += 1
 
     if hook_id <= 0xFF:
         code += _to_le16(0x2400 | hook_id)
+        instr_count += 1
     else:
         code += _encode_movw(4, hook_id & 0xFFFF)
+        instr_count += 1
         upper = (hook_id >> 16) & 0xFFFF
         if upper:
             code += _encode_movt(4, upper)
+            instr_count += 1
 
     code += _to_le16(0x4624)
-    code += _to_le16(0xBD10)
+    instr_count += 1
 
-    instr_count = len(code) // 2
+    code += _to_le16(0xBD10)
+    instr_count += 1
+
     return code, instr_count
 
 
